@@ -33,7 +33,7 @@ GO_BBOX = (43.0, -80.8, 44.6, -78.6)
 def overpass(query):
     last = None
     for ep in ENDPOINTS:
-        for attempt in range(3):
+        for attempt in range(int(os.environ.get("OVERPASS_RETRIES", 3))):
             try:
                 req = urllib.request.Request(ep, data=urllib.parse.urlencode({"data": query}).encode(),
                                              headers={"User-Agent": UA})

@@ -64,7 +64,8 @@
 
   function buildLegend() {
     const ttc = TRANSIT.filter(l => l.kind === 'subway').map(l => `<span class="lg-ttc"><i style="background:${l.color};${l.id === 'L6' ? 'height:3px' : ''}"></i>${l.id.slice(1)}</span>`).join('');
-    const go = `<span class="lg-ttc"><i class="go"></i>GO / UP</span>`;
+    const go = `<span class="lg-ttc"><i class="go"></i>GO / UP</span>` +
+      ((window.CONSTRUCTION || []).length ? `<span class="lg-ttc" title="${CONSTRUCTION.map(l => `${l.name} (${l.opening})`).join('\n')}"><i class="uc"></i>Under construction</span>` : '');
     const sample = (t) => `<svg width="34" height="12">${TB.render && legendLine(t)}</svg>`;
     $('#legend').innerHTML = `
       <div class="lg-row">${ttc}${go}</div>
@@ -448,7 +449,7 @@
       </ul>
       <h3>Data</h3>
       <ul class="small">
-        <li>Existing network: © OpenStreetMap contributors (ODbL), fetched once by <code>tools/build_transit.py</code>.</li>
+        <li>Existing network: © OpenStreetMap contributors (ODbL), fetched once by <code>tools/build_transit.py</code>. Lines under construction (dashed: Ontario Line, Scarborough, Eglinton West and Yonge North extensions, Hurontario LRT) come from OSM construction mapping; the Yonge North alignment is approximate.</li>
         <li>Population density: Statistics Canada 2021 Census, 8,508 dissemination areas across Toronto, Peel, York, Durham and Halton (Statistics Canada Open Licence).</li>
         <li>Land survey: buildings (with heights), parks, land use, roads, rail and water from OpenStreetMap via OpenFreeMap vector tiles; every parking lot in Toronto from the City's topographic mapping, with City-owned lots from the Green P dataset (City of Toronto Open Data). Lots outside Toronto aren't covered.</li>
         <li>Terrain: AWS Terrain Tiles (Mapzen / USGS / NRCan). Basemap: OpenFreeMap.</li>

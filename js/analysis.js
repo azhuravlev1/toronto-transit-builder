@@ -415,7 +415,7 @@
   }
 
   function existingDir(ex) {
-    const line = TRANSIT.find(l => l.id === ex.lineId);
+    const line = TRANSIT.find(l => l.id === ex.lineId) || (window.CONSTRUCTION || []).find(l => l.id === ex.lineId);
     let best = Infinity, dir = [1, 0];
     for (const seg of line.segments) for (let i = 1; i < seg.length; i++) {
       const a = G.toXY(seg[i - 1][1], seg[i - 1][0]), b = G.toXY(seg[i][1], seg[i][0]);
@@ -429,9 +429,12 @@
     const warnings = [], lv = C.landValue(ex.lat, ex.lon);
     const bf = buildingFraction(ex.xy, 100), cov = bf.frac ?? Math.min(0.7, lv / 40000 + 0.2);
     const loc = 1 + 1.3 * cov + lv / 25000;
-    const busy = (ex.lineId === 'L1' || ex.lineId === 'L2') && lv > 12000 ? 1.6 : ex.name === 'Union' ? 1.8 : 1;
+    const uc = ex.kind === 'construction';
+    const busy = uc ? 1 : (ex.lineId === 'L1' || ex.lineId === 'L2') && lv > 12000 ? 1.6 : ex.name === 'Union' ? 1.8 : 1;
     const passage = G.rectDist(ex.xy, st.c, st.dir, st.L, st.W);
-    const base = ex.kind === 'go' ? 22e6 : ex.grade === 'tunnel' ? 45e6 : 9e6;
+    // tying into a station that is still being built is cheaper than retrofitting an operating one
+    const base = (ex.kind === 'go' ? 22e6 : ex.grade === 'tunnel' ? 45e6 : 9e6) * (uc ? 0.7 : 1);
+    if (uc) warnings.push({ sev: 'info', msg: `${ex.name} (${ex.lineName}) is still under construction – design changes now are 30 % cheaper than a retrofit` });
     let conflict = 1;
     const ang = G.angleBetween(existingDir(ex), st.dir) * 180 / Math.PI, crossing = Math.min(ang, 180 - ang) > 25;
     const dz = st.depth - ex.depth;

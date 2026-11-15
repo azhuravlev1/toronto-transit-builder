@@ -13,4 +13,7 @@
 - Public Overpass servers are often slow or down. The app's land survey therefore uses OpenFreeMap
   vector tiles (`js/survey.js`, decoded by `js/mvt.js`) plus the pre-tiled City parking data, not
   Overpass.
+- Overpass quirks seen when building data: `make` replaces the default set (store results in named
+  sets first), and `around` against big way sets sometimes returns nothing under load. Prefer bbox
+  queries plus distance filtering in Python. Use `OVERPASS_RETRIES=8` when the server is busy.
 - statcan www12 blocks scripted downloads; use the geo.statcan.gc.ca ArcGIS REST services instead.

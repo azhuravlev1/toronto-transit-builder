@@ -153,6 +153,7 @@ body.has-profile #legend { bottom: calc(var(--profile-h) + 12px); }
 .lg-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
 .lg-ttc { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 11px; }
 .lg-ttc i { display: inline-block; width: 18px; height: 5px; border-radius: 3px; opacity: .8; }
+.lg-ttc i.uc { background: repeating-linear-gradient(90deg, #7C55C7 0 5px, transparent 5px 9px); }
 .lg-ttc i.go { height: 2.5px; background: repeating-linear-gradient(90deg, #98002E 0 6px, #0099C7 6px 12px, #00853F 12px 18px); }
 .lg-types { margin-top: 5px; font-size: 10.5px; color: #4b5563; }
 .lg-types span { display: inline-flex; align-items: center; gap: 2px; }

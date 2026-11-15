@@ -44,6 +44,13 @@
       stations.push({ key: line.id + ':' + st.name, name: st.name, lineId: line.id, lineName: line.name, kind: line.kind,
         color: line.color, lat: st.lat, lon: st.lon, xy, grade, depth: estDepth(line, st, grade) });
     }
+    // lines under construction: connectable, and counted as "served" for catchment stats
+    for (const line of window.CONSTRUCTION || []) for (const st of line.stations) {
+      const grade = st.grade || 'tunnel';
+      stations.push({ key: line.id + ':' + st.name, name: st.name, lineId: line.id, lineName: line.name, kind: 'construction',
+        opening: line.opening, color: line.color, lat: st.lat, lon: st.lon, xy: G.toXY(st.lat, st.lon), grade,
+        depth: grade === 'tunnel' ? line.depth : grade === 'bridge' ? -9 : 0 });
+    }
   }
 
   function render(map) {
@@ -61,17 +68,32 @@
         lineLayers.push(pl); group.addLayer(pl);
       });
     }
-    for (const line of ordered) for (const st of line.stations) {
+    // under construction: dashed, same width rules as the TTC (thinner where at grade for LRT)
+    for (const line of window.CONSTRUCTION || []) {
+      line.segments.forEach((seg, i) => {
+        const g = (line.grades || [])[i] || 'tunnel';
+        const pl = L.polyline(seg.map(c => [c[1], c[0]]), { renderer: lineR, pane: 'transitPane', color: line.color,
+          opacity: 0.7, lineCap: 'butt', lineJoin: 'round', interactive: false });
+        pl._tb = { kind: 'construction', f: line.mode === 'lrt' && g === 'surface' ? THIN : 1 };
+        lineLayers.push(pl); group.addLayer(pl);
+      });
+    }
+    const tip = (st, line) => `<b>${st.name}</b> <span class="chip" style="background:${line.color}"></span> ${line.name}` +
+      (line.kind === 'construction' ? `<br><span class="muted">Under construction · opening ${line.opening}${line.approx ? ' · approximate alignment' : ''}</span>` : '');
+    for (const line of [...ordered, ...(window.CONSTRUCTION || [])]) for (const st of line.stations) {
+      const uc = line.kind === 'construction';
       const m = L.circleMarker([st.lat, st.lon], { renderer: stR, pane: 'transitStationPane', color: line.color, weight: line.kind === 'go' ? 1.2 : 1.6,
-        opacity: 0.85, fillColor: '#fff', fillOpacity: 0.85, interactive: canHover, bubblingMouseEvents: true });
-      m._tb = { kind: line.kind, f: line.id === 'L6' ? THIN : 1 };
-      if (canHover) m.bindTooltip(`<b>${st.name}</b> <span class="chip" style="background:${line.color}"></span> ${line.name}`,
-        { className: 'tb-tip', direction: 'top', offset: [0, -4], opacity: 1 });
+        opacity: uc ? 0.7 : 0.85, fillColor: '#fff', fillOpacity: 0.85, interactive: canHover, bubblingMouseEvents: true });
+      m._tb = { kind: line.kind, f: line.id === 'L6' || (uc && line.mode === 'lrt' && st.grade === 'surface') ? THIN : 1 };
+      if (canHover) m.bindTooltip(tip(st, line), { className: 'tb-tip', direction: 'top', offset: [0, -4], opacity: 1 });
       stationLayers.push(m); group.addLayer(m);
     }
     const restyle = () => {
       const z = map.getZoom();
-      for (const l of lineLayers) l.setStyle({ weight: (l._tb.kind === 'go' ? goW(z) : ttcW(z)) * l._tb.f });
+      for (const l of lineLayers) {
+        const w = (l._tb.kind === 'go' ? goW(z) : ttcW(z)) * l._tb.f;
+        l.setStyle(l._tb.kind === 'construction' ? { weight: w, dashArray: `${(w * 1.8).toFixed(1)} ${(w * 1.4).toFixed(1)}` } : { weight: w });
+      }
       for (const m of stationLayers) m.setRadius(m._tb.kind === 'go' ? goR(z) : ttcR(z) * (m._tb.f < 1 ? 0.85 : 1));
     };
     map.on('zoomend', restyle); restyle();

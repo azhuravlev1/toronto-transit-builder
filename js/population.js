@@ -61,7 +61,7 @@
       for (const p of inside) { const o = { x: p[0], y: p[1], w, i: pts.length }; pts.push(o); ptGrid.insert([p[0], p[1], p[0], p[1]], o); }
     }
     existingCovered = new Uint8Array(pts.length);
-    for (const line of window.TRANSIT || []) for (const s of line.stations) {
+    for (const line of [...(window.TRANSIT || []), ...(window.CONSTRUCTION || [])]) for (const s of line.stations) {
       const c = G.toXY(s.lat, s.lon);
       for (const o of ptGrid.query([c[0] - 800, c[1] - 800, c[0] + 800, c[1] + 800]))
         if (Math.hypot(o.x - c[0], o.y - c[1]) <= 800) existingCovered[o.i] = 1;

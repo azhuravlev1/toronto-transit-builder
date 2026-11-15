@@ -11,6 +11,10 @@ team.
 
 - **Existing network**: TTC Lines 1–6 plus GO / UP in a light diagram style. Line 6 and the at-grade
   sections of Line 5 east of Laird are drawn thinner, because they share streets with traffic.
+- **Under construction** (dashed): Line 3 Ontario, the Scarborough Subway Extension (Line 2), the
+  Eglinton West Extension (Line 5), the Yonge North Subway Extension (Line 1, approximate alignment)
+  and the Hazel McCallion (Hurontario) LRT. Their stations count as served in catchment stats, and you
+  can connect to them, about 30 % cheaper than retrofitting an operating station.
 - **Draw lines** like Google Maps' measuring tool: click to drop stations, with the track length shown
   between each pair. Shift-click adds bend points. Drag stations, bend points, or the hollow dots
   mid-span to bend the track (smoothed curves, straight platforms).
@@ -46,6 +50,7 @@ low-cost cases (Italy, Istanbul, Spain, Nordics), not recent Ontario projects. A
 | File | Source | Script |
 |---|---|---|
 | `data/transit.js` | OpenStreetMap route relations via Overpass (ODbL) | `python3 tools/build_transit.py` |
+| `data/construction.js` | OSM `railway=construction` ways and stations; road intersections where stations aren't mapped yet | `python3 tools/build_construction.py` |
 | `data/population.js` | Statistics Canada 2021 Census: DA boundaries (geo.statcan.gc.ca) + counts (Esri Canada mirror) | `python3 tools/build_population.py` |
 | `data/greenp.js` | City of Toronto Open Data – Green P Parking | `python3 tools/build_greenp.py` |
 | `data/parking/*.js` | City of Toronto Open Data – Topographic Mapping, parking lots | `python3 tools/build_parking.py` (needs `pyshp`) |
