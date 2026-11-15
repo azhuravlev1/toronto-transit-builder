@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Toronto Transit Builder</title>
+  <meta name="description" content="Design fantasy subway and LRT lines for Toronto on real terrain, census density and land data – and see what they would cost.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' rx='6' fill='%23E4007C'/%3E%3Crect x='10' y='12' width='12' height='8' rx='2' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body data-mode="select">
+  <div id="map"></div>
+
+  <div id="toolbar"></div>
+  <div id="density-readout"></div>
+  <div id="legend"></div>
+  <div id="profile"></div>
+
+  <aside id="panel">
+    <header>
+      <div class="brand"><span class="logo"></span><div><input id="project-name" spellcheck="false"><div class="muted small">Toronto Transit Builder</div></div></div>
+      <div class="hdr-btns">
+        <button class="icon" id="undo" data-act="undo" title="Undo (⌘/Ctrl Z)">↶</button>
+        <button class="icon" id="redo" data-act="redo" title="Redo (⇧⌘/Ctrl Z)">↷</button>
+        <div class="menu-wrap"><button class="icon" id="menu-btn" title="Menu">⋯</button>
+          <div id="menu">
+            <button data-act="newline">New line</button>
+            <button data-act="share">Copy share link</button>
+            <button data-act="export">Export network (.json)</button>
+            <button data-act="import">Import network…</button>
+            <button data-act="budget">Set budget…</button>
+            <hr>
+            <button data-act="help">How to play</button>
+            <button data-act="about">Methodology & sources</button>
+            <hr>
+            <button data-act="newproject" class="danger">New empty network</button>
+          </div></div>
+      </div>
+    </header>
+    <div id="panel-body">
+      <section id="summary"></section>
+      <section id="lines"></section>
+      <section id="inspector"><div id="inspector-controls"></div><div id="inspector-stats"></div></section>
+    </div>
+    <button id="panel-toggle" title="Hide / show panel"></button>
+  </aside>
+
+  <div id="toast"></div>
+  <div id="modal"><div class="modal-card"><button class="icon close" data-act="modal-close">✕</button><div id="modal-body"></div></div></div>
+  <input type="file" id="import-file" accept=".json,application/json" hidden>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin=""></script>
+  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js" crossorigin=""></script>
+  <script src="data/transit.js"></script>
+  <script src="data/greenp.js"></script>
+  <script src="data/parking/index.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/terrain.js"></script>
+  <script src="js/mvt.js"></script>
+  <script src="js/survey.js"></script>
+  <script src="js/population.js"></script>
+  <script src="js/costs.js"></script>
+  <script src="js/network.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/analysis.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/profile.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
