@@ -44,9 +44,27 @@
   // ---------------------------------------------------------------------------------------
   function compute() { TB.app.result = TB.analysis.analyzeProject(M.project); return TB.app.result; }
 
-  function redraw() {
+  let committedTotal = null, pointer = { x: innerWidth / 2, y: innerHeight / 2 };
+  document.addEventListener('pointermove', (e) => { pointer = { x: e.clientX, y: e.clientY }; }, true);
+  document.addEventListener('pointerdown', (e) => { pointer = { x: e.clientX, y: e.clientY }; }, true);
+
+  // after a user change: show the cost delta floating up (+) or down (−) next to the pointer
+  function onModelChange(info) {
+    if (autoName()) M.save();
+    redraw(true);
+    const total = TB.app.result.total;
+    if (committedTotal != null && !(info && info.replaced)) {
+      const d = total - committedTotal;
+      if (Math.abs(d) >= 1e5) TB.ui.costFloat(d, pointer.x, pointer.y - 14);
+    }
+    committedTotal = total;
+    scheduleSurvey();
+  }
+
+  function redraw(fromChange) {
     clearTimeout(redrawTimer); redrawTimer = null;
     const res = compute();
+    if (fromChange !== true) committedTotal = res.total;
     TB.render.draw(M.project, res, TB.state);
     TB.ui.update(res);
     TB.profile.update(res);
@@ -96,7 +114,7 @@
   function autoName() {
     let changed = false;
     const used = new Set();
-    for (const l of M.project.lines) for (const n of l.nodes) if (n.kind === 'station' && !n.autoName) used.add(n.name);
+    for (const l of M.project.lines) for (const n of l.nodes) if (n.kind === 'station' && n.autoName !== true) used.add(n.name);
     for (const l of M.project.lines) for (const n of l.nodes) {
       if (n.kind !== 'station' || n.autoName !== true || !TB.osm.covered(n.lat, n.lon)) continue;
       const p = G.toXY(n.lat, n.lon), roads = [];
@@ -148,7 +166,7 @@
     TB.editor.init(map);
     TB.ui.init(map);
     TB.profile.init();
-    M.on('change', () => { if (autoName()) M.save(); redraw(); scheduleSurvey(); });
+    M.on('change', onModelChange);
     TB.osm.onChange(() => { if (autoName()) M.save(); redrawSoon(); });
     TB.terrain.onChange(() => redrawSoon());
     if (M.project.lines.length) TB.state.activeLine = M.project.lines[0].id;

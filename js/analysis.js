@@ -23,9 +23,12 @@
 
   // ---------------------------------------------------------------------------------------
   function stationDims(line, node, level) {
-    const m = C.MODES[line.mode];
-    return { L: node.length || m.platform, W: node.width || m.width[level] };
+    const m = C.MODES[line.mode], lay = m.layout[level];
+    const W = node.width || lay.island;
+    return { L: node.length || m.platform, W, layout: W >= lay.thr ? 'side' : 'island', lay };
   }
+  const rotate = (v, deg) => { const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [v[0] * c - v[1] * s, v[0] * s + v[1] * c]; };
+  const clampRot = (r) => Math.max(-C.ROT_MAX, Math.min(C.ROT_MAX, r || 0));
   function defaultStationDepth(tb, ta) {
     const ts = [tb, ta].filter(Boolean);
     if (ts.some(UNDER)) return ts.includes('bored') ? 18 : 10;
@@ -44,10 +47,12 @@
   function buildPath(line) {
     const nodes = line.nodes, n = nodes.length;
     const P = nodes.map(nd => G.toXY(nd.lat, nd.lon));
-    const tin = [], tout = [], depth = [];
+    const tin = [], tout = [], depth = [], base = [];
     for (let i = 0; i < n; i++) {
       const a = i > 0 ? G.norm(G.sub(P[i], P[i - 1])) : null, b = i < n - 1 ? G.norm(G.sub(P[i + 1], P[i])) : null;
-      const t = a && b ? G.norm(G.add(a, b)) : (a || b || [1, 0]);
+      let t = a && b ? G.norm(G.add(a, b)) : (a || b || [1, 0]);
+      base[i] = t;
+      if (nodes[i].kind === 'station' && nodes[i].rot) t = rotate(t, clampRot(nodes[i].rot)); // tracks bend to fit the rotated box
       if (nodes[i].corner && a && b && nodes[i].kind !== 'station') { tin[i] = a; tout[i] = b; } else tin[i] = tout[i] = t;
       const tb = i > 0 ? nodes[i - 1].out.type : null, ta = i < n - 1 ? nodes[i].out.type : null;
       depth[i] = nodes[i].kind === 'station' ? (nodes[i].depth ?? defaultStationDepth(tb, ta)) : nodes[i].depth;
@@ -65,7 +70,7 @@
     const S = [], nodeIdx = new Array(n).fill(0);
     let s = 0;
     const push = (p, span, inSt) => { const ll = G.toLL(p[0], p[1]); S.push({ x: p[0], y: p[1], lat: ll[0], lon: ll[1], s, span, inSt }); };
-    if (!ctrls.length) return { P, S, nodeIdx, tin, depth };
+    if (!ctrls.length) return { P, S, nodeIdx, tin, depth, base };
     push(ctrls[0].p, 0, nodes[ctrls[0].node].kind === 'station' ? ctrls[0].node : -1);
     for (let k = 0; k < ctrls.length - 1; k++) {
       const c0 = ctrls[k], c1 = ctrls[k + 1], D = G.dxy(c0.p, c1.p);
@@ -84,14 +89,14 @@
       }
       if (c1.part === 0) nodeIdx[c1.node] = S.length - 1;
     }
-    return { P, S, nodeIdx, tin, depth };
+    return { P, S, nodeIdx, tin, depth, base };
   }
 
   // ---------------------------------------------------------------------------------------
   function analyzeLine(line, project) {
     const mode = C.MODES[line.mode], nodes = line.nodes, n = nodes.length;
     const R = { line, warnings: [], stations: [], spans: [], takings: new Map(), cost: {}, metrics: {} };
-    const warn = (sev, msg, where, ref) => R.warnings.push({ sev, msg, lat: where && where[0], lon: where && where[1], ref });
+    const warn = (sev, msg, where, ref, fix) => R.warnings.push({ sev, msg, lat: where && where[0], lon: where && where[1], ref, fix });
     if (n < 2) {
       Object.assign(R, buildPath(line)); R.empty = true;
       R.cost = { total: 0, interchange: 0 }; R.metrics = { length: 0, stations: 0 };
@@ -127,6 +132,45 @@
       }
     }
     anchors.sort((a, b) => a.s - b.s);
+    R.anchors = anchors.map(a => ({ ...a, g: gS[a.k], node: nodes[a.i].id }));
+    const anchorsAround = (s) => {
+      let A = anchors[0], B = anchors[anchors.length - 1];
+      for (const a of anchors) { if (a.s <= s) A = a; if (a.s >= s) { B = a; break; } }
+      return [A, B];
+    };
+    const depthLimits = (a) => nodes[a.i].kind === 'station' && levelOf(depth[a.i]) === 'under' ? [8, 55] : nodes[a.i].kind === 'station' ? [-15, 3] : [-15, 55];
+    // Suggested repair for a tunnel that breaks out into a valley: deepen the anchors on either
+    // side just enough (respecting the grade limit) for the tunnel to pass under with cover.
+    const fixBreakout = (k, spanI) => {
+      const zreq = gLow[k] - 14, s = S[k].s, changes = [];
+      for (const a of anchorsAround(s)) {
+        if (a.portal) return { label: 'Make this span a bridge', changes: [{ span: spanI, type: 'bridge' }] };
+        const need = Math.ceil(gS[a.k] - (zreq + Gmax * Math.abs(s - a.s)));
+        if (need > depth[a.i] + 0.5) {
+          if (need > depthLimits(a)[1]) return { label: 'Too deep to tunnel under – make this span a bridge', changes: [{ span: spanI, type: 'bridge' }] };
+          changes.push({ node: nodes[a.i].id, depth: need, name: nodes[a.i].name || 'bend point' });
+        }
+      }
+      return changes.length ? { label: 'Go deeper: ' + changes.map(c => `${c.name} → ${c.depth} m`).join(', '), changes } : null;
+    };
+    // Suggested repair for an over-steep grade: move one end's depth just enough.
+    const fixGrade = (k) => {
+      const [A, B] = anchorsAround(S[k].s);
+      if (A === B) return null;
+      const maxD = Gmax * (B.s - A.s) * 0.98, opts = [];
+      for (const [X, Y, sign] of [[A, B, 1], [B, A, -1]]) {
+        // move X so that |zX - zY| ≤ maxD
+        const target = X.z > Y.z + maxD ? Y.z + maxD : X.z < Y.z - maxD ? Y.z - maxD : null;
+        if (target == null) continue;
+        const d = Math.round(gS[X.k] - target), [lo, hi] = depthLimits(X);
+        if (d < lo || d > hi) continue;
+        opts.push({ X, d, cost: Math.abs(d - depth[X.i]) + (nodes[X.i].kind === 'station' ? 5 : 0) });
+      }
+      if (!opts.length) return null;
+      const o = opts.sort((a, b) => a.cost - b.cost)[0];
+      const nm = nodes[o.X.i].name || 'bend point';
+      return { label: `Set ${nm} to ${o.d > 0 ? o.d + ' m deep' : o.d < 0 ? (-o.d) + ' m up' : 'ground level'}`, changes: [{ node: nodes[o.X.i].id, depth: o.d }] };
+    };
 
     // vertical profile: per-sample target level, made grade-feasible, then pinned to anchors
     const z = new Float64Array(K), type = S.map(p => nodes[p.span].out.type), Gmax = mode.grade;
@@ -227,7 +271,7 @@
       if (waterLen > 0) span.notes.push(`${Math.round(waterLen)} m over water (+30 %)`);
       if (span.minCover < 1.5) {
         const p = S[span.coverAt];
-        warn('error', `Tunnel breaks out of the ground (${(span.minCover + 6.5).toFixed(0)} m to surface incl. tunnel) – the valley is too deep here. Go deeper, or switch this span to a bridge.`, [p.lat, p.lon], { span: i, line: line.id });
+        warn('error', `Tunnel breaks out of the ground (${(span.minCover + 6.5).toFixed(0)} m to surface incl. tunnel) – the valley is too deep here. Go deeper, or switch this span to a bridge.`, [p.lat, p.lon], { span: i, line: line.id }, fixBreakout(span.coverAt, i));
       } else if (span.minCover < 6 && t === 'bored') {
         const p = S[span.coverAt];
         warn('warn', `Very shallow bored tunnel (${span.minCover.toFixed(0)} m cover) – ground treatment needed`, [p.lat, p.lon], { span: i, line: line.id });
@@ -236,7 +280,7 @@
       if (span.deepCC) warn('warn', 'Cut-and-cover deeper than 24 m – a bored tunnel would be cheaper here', [S[span.deepCC].lat, S[span.deepCC].lon], { span: i, line: line.id });
       if (span.maxGrade > Gmax + 0.003) {
         const p = S[span.gradeAt];
-        warn('error', `Grade ${(span.maxGrade * 100).toFixed(1)} % exceeds the ${(Gmax * 100).toFixed(1)} % limit for ${mode.label.toLowerCase()} – move stations apart or change depths`, [p.lat, p.lon], { span: i, line: line.id });
+        warn('error', `Grade ${(span.maxGrade * 100).toFixed(1)} % exceeds the ${(Gmax * 100).toFixed(1)} % limit for ${mode.label.toLowerCase()} – move stations apart or change depths`, [p.lat, p.lon], { span: i, line: line.id }, fixGrade(span.gradeAt));
       }
       if (span.minR < mode.hardR && !(t === 'street' && line.mode === 'lrt')) {
         const p = S[span.minRAt];
@@ -308,10 +352,10 @@
 
   // ---------------------------------------------------------------------------------------
   function analyzeStation(line, nd, i, path, depth, parcels, project, warn, groundZ) {
-    const level = levelOf(depth), { L, W } = stationDims(line, nd, level);
+    const level = levelOf(depth), { L, W, layout, lay } = stationDims(line, nd, level);
     const c = path.P[i], dir = path.tin[i];
-    const st = { node: nd, index: i, lineId: line.id, level, depth, L, W, c, dir, ground: groundZ, lat: nd.lat, lon: nd.lon,
-      rect: G.rect(c, dir, L, W), site: {}, warnings: [], exits: [], conns: [] };
+    const st = { node: nd, index: i, lineId: line.id, level, depth, L, W, layout, lay, c, dir, baseDir: path.base[i], rot: clampRot(nd.rot),
+      ground: groundZ, lat: nd.lat, lon: nd.lon, rect: G.rect(c, dir, L, W), site: {}, warnings: [], exits: [], junctions: [], exitEdges: [], conns: [] };
     st.rectLL = st.rect.map(p => G.toLL(p[0], p[1]));
     const where = [nd.lat, nd.lon], ref = { node: nd.id, line: line.id };
     const w = (sev, msg) => { st.warnings.push({ sev, msg }); warn(sev, `${nd.name}: ${msg}`, where, ref); };
@@ -369,50 +413,105 @@
       if (line.mode !== 'lrt' && level === 'surface' && (st.site.road || 0) > 0.5) w('warn', 'Heavy-rail station in the middle of a road');
     }
 
-    // exits
-    const exits = nd.exits || [];
-    let exitCost = 0;
-    const exitOne = (p, surf) => {
-      const passage = G.rectDist(p, c, dir, L, W);
-      const f = { acquired: 0.85, building: 1.35, road: 1.4, park: 0.95, open: 1, parking: 1, vacant: 0.95 }[surf] || 1;
-      const base = level === 'under' ? 3.5e6 + 0.3e6 * depth : level === 'above' ? 2.5e6 : 0.4e6;
-      return { passage, f, cost: (base + passage * (level === 'under' ? 38e3 : 12e3)) * f };
+    // exits: a tree of passages from the box through optional junctions to street-level portals
+    const exits = nd.exits || [], juncs = nd.junctions || [];
+    const pos = new Map();
+    for (const j of juncs) pos.set(j.id, G.toXY(j.lat, j.lon));
+    for (const e of exits) pos.set(e.id, G.toXY(e.lat, e.lon));
+    const boxEdge = (p) => nearestOnRect(p, c, dir, L, W);
+    const perM = C.EXIT.passage[level];
+    const chainLen = new Map(); // walking distance box → item
+    const lenTo = (item, guard = 0) => {
+      if (chainLen.has(item.id)) return chainLen.get(item.id);
+      const p = pos.get(item.id), parent = item.parent && pos.has(item.parent) && guard < 30 ? juncs.find(j => j.id === item.parent) : null;
+      const from = parent ? pos.get(parent.id) : boxEdge(p);
+      const l = G.dxy(p, from) + (parent ? lenTo(parent, guard + 1) : 0);
+      chainLen.set(item.id, l);
+      return l;
     };
-    for (const ex of exits) {
-      const p = G.toXY(ex.lat, ex.lon);
-      const surf = acquiredAt(p, parcels) ? 'acquired' : TB.osm.coveredXY(p) ? TB.osm.surfaceAt(p).cat : 'open';
-      const r = exitOne(p, surf);
-      st.exits.push(Object.assign({ ex, surf }, r)); exitCost += r.cost;
-      if (r.passage > 150) w('info', `Exit ${exits.indexOf(ex) + 1} has a ${Math.round(r.passage)} m passage`);
-      if (surf === 'road') w('warn', `Exit ${exits.indexOf(ex) + 1} opens into a roadway`);
+    let exitCost = 0;
+    for (const item of [...juncs, ...exits]) {
+      const p = pos.get(item.id), parent = item.parent && pos.has(item.parent) ? pos.get(item.parent) : null;
+      const from = parent || boxEdge(p), len = G.dxy(p, from);
+      st.exitEdges.push({ from: G.toLL(from[0], from[1]), to: [item.lat, item.lon], len, id: item.id });
+      exitCost += len * perM;
     }
+    for (const j of juncs) {
+      const cst = C.EXIT.junction[level];
+      st.junctions.push({ j, cost: cst, passage: lenTo(j) }); exitCost += cst;
+    }
+    exits.forEach((ex, n) => {
+      const p = pos.get(ex.id), sf = exitSurface(p, parcels);
+      const f = { acquired: 0.85, road: 1.0, park: 0.95, parking: 0.9, open: 1 }[sf.cat] || (sf.ok ? 1 : 1.6);
+      const own = st.exitEdges.find(e => e.id === ex.id).len * perM;
+      const portal = C.EXIT.portal(level, depth) * f;
+      st.exits.push({ ex, surf: sf.cat, ok: sf.ok, why: sf.why, passage: lenTo(ex), cost: portal + own, portal });
+      exitCost += portal;
+      if (!sf.ok) w('warn', `Exit ${n + 1}: ${sf.why} (+60 %)`);
+      if (lenTo(ex) > 150) w('info', `Exit ${n + 1} has a ${Math.round(lenTo(ex))} m passage`);
+    });
     if (level === 'under' && exits.length < 2) {
       w(exits.length ? 'warn' : 'info', exits.length ? 'Only one exit – fire code (NFPA 130) needs two; a second is costed automatically' : 'No exits placed – two default sidewalk exits are costed');
-      for (let k = exits.length; k < 2; k++) exitCost += exitOne(G.add(c, G.mul(dir, (k ? 1 : -1) * (L / 2 + 10))), 'open').cost;
+      st.defaultExits = 2 - exits.length;
+      exitCost += st.defaultExits * (C.EXIT.portal(level, depth) + 25 * perM);
     }
     st.exitCost = exitCost;
 
-    // connections to the existing network
+    // connections to the existing network (with an optional hand-shaped passage)
     st.connCost = 0;
     for (const key of nd.connect || []) {
       const ex = TB.network.byKey(key); if (!ex) continue;
-      st.conns.push(connectionCost(st, ex, line));
+      st.conns.push(connectionCost(st, ex, line, (nd.links || {})[key] || {}));
       st.connCost += st.conns[st.conns.length - 1].cost;
     }
     for (const cn of st.conns) for (const m of cn.warnings) w(m.sev, m.msg);
     return st;
   }
 
-  function buildingFraction(xy, r) {
-    let n = 0, b = 0, unk = 0;
+  function nearestOnRect(p, c, d, L, W) {
+    const v = G.sub(p, c), nr = [-d[1], d[0]];
+    let a = G.dot(v, d), b = G.dot(v, nr);
+    const ca = Math.max(-L / 2, Math.min(L / 2, a)), cb = Math.max(-W / 2, Math.min(W / 2, b));
+    if (ca === a && cb === b) { // inside: push to the nearest edge
+      if (L / 2 - Math.abs(a) < W / 2 - Math.abs(b)) a = Math.sign(a || 1) * L / 2; else b = Math.sign(b || 1) * W / 2;
+      return G.add(c, G.add(G.mul(d, a), G.mul(nr, b)));
+    }
+    return G.add(c, G.add(G.mul(d, ca), G.mul(nr, cb)));
+  }
+
+  // Can a street-level exit go here? Allowed on acquired land, public land (parks, public
+  // parking, roads / sidewalks) and unclaimed grey space – not on private land you haven't bought.
+  function exitSurface(p, parcels) {
+    if (acquiredAt(p, parcels)) return { cat: 'acquired', ok: true };
+    if (!TB.osm.coveredXY(p)) return { cat: 'unknown', ok: true, pending: true };
+    const s = TB.osm.surfaceAt(p), f = s.f;
+    switch (s.cat) {
+      case 'road': case 'open': return { cat: s.cat, ok: true };
+      case 'park': return f && f.public ? { cat: 'park', ok: true } : { cat: 'park', ok: false, why: 'private green space – acquire it first' };
+      case 'parking': return f && f.public ? { cat: 'parking', ok: true } : { cat: 'parking', ok: false, why: 'private parking lot – acquire it first' };
+      case 'building': return { cat: 'building', ok: false, why: 'inside a building you don\'t own – acquire it first' };
+      case 'vacant': return { cat: 'vacant', ok: false, why: 'private land – acquire it first' };
+      case 'water': return { cat: 'water', ok: false, why: 'in the water' };
+      case 'rail': return { cat: 'rail', ok: false, why: 'on an operating railway' };
+      default: return { cat: s.cat, ok: false, why: `on ${(C.SITE[s.cat] || {}).label || s.cat} – acquire it first` };
+    }
+  }
+
+  // Share of built-up and open land around a point
+  function siteAround(xy, r) {
+    let n = 0, b = 0, o = 0, unk = 0;
     for (let x = -r; x <= r; x += 12) for (let y = -r; y <= r; y += 12) {
       if (x * x + y * y > r * r) continue;
       const p = [xy[0] + x, xy[1] + y]; n++;
       if (!TB.osm.coveredXY(p)) { unk++; continue; }
-      if (TB.osm.areasAt(p).some(f => f.cat === 'building')) b++;
+      const cat = TB.osm.surfaceAt(p).cat;
+      if (cat === 'building') b++;
+      else if (/parking|park|vacant|open/.test(cat)) o++;
     }
-    return { frac: n - unk > 0 ? b / (n - unk) : null, surveyed: unk === 0 };
+    const m = n - unk;
+    return { frac: m > 0 ? b / m : null, open: m > 0 ? o / m : null, surveyed: unk === 0 };
   }
+  const buildingFraction = siteAround;
 
   function existingDir(ex) {
     const line = TRANSIT.find(l => l.id === ex.lineId) || (window.CONSTRUCTION || []).find(l => l.id === ex.lineId);
@@ -425,15 +524,22 @@
     return dir;
   }
 
-  function connectionCost(st, ex, line) {
+  function connectionCost(st, ex, line, link) {
     const warnings = [], lv = C.landValue(ex.lat, ex.lon);
-    const bf = buildingFraction(ex.xy, 100), cov = bf.frac ?? Math.min(0.7, lv / 40000 + 0.2);
-    const loc = 1 + 1.3 * cov + lv / 25000;
+    // how cramped is the existing station? built-up land makes it harder, open lots / parks easier
+    const sa = siteAround(ex.xy, 90), cov = sa.frac ?? Math.min(0.7, lv / 40000 + 0.2), open = sa.open ?? 0.2;
+    const crowd = 1 + 1.3 * cov, landF = 1 + lv / 25000, space = 1 - 0.35 * open;
+    const loc = crowd * landF * space;
     const uc = ex.kind === 'construction';
-    const busy = uc ? 1 : (ex.lineId === 'L1' || ex.lineId === 'L2') && lv > 12000 ? 1.6 : ex.name === 'Union' ? 1.8 : 1;
-    const passage = G.rectDist(ex.xy, st.c, st.dir, st.L, st.W);
+    const busy = uc ? 1 : ex.name === 'Union' ? 1.8 : (ex.lineId === 'L1' || ex.lineId === 'L2') && lv > 12000 ? 1.6 : 1;
+    // passage: box edge → (hand-shaped bend points) → existing station
+    const via = (link.via || []).map(q => G.toXY(q[0], q[1]));
+    const start = nearestOnRect(via[0] || ex.xy, st.c, st.dir, st.L, st.W);
+    const ptsXY = [start, ...via, ex.xy];
+    let passage = 0; for (let k = 1; k < ptsXY.length; k++) passage += G.dxy(ptsXY[k - 1], ptsXY[k]);
+    const surface = link.type === 'surface';
     // tying into a station that is still being built is cheaper than retrofitting an operating one
-    const base = (ex.kind === 'go' ? 22e6 : ex.grade === 'tunnel' ? 45e6 : 9e6) * (uc ? 0.7 : 1);
+    const base = (ex.kind === 'go' ? 22e6 : ex.grade === 'tunnel' ? 45e6 : 9e6) * (uc ? 0.7 : 1) * (surface ? 0.45 : 1);
     if (uc) warnings.push({ sev: 'info', msg: `${ex.name} (${ex.lineName}) is still under construction – design changes now are 30 % cheaper than a retrofit` });
     let conflict = 1;
     const ang = G.angleBetween(existingDir(ex), st.dir) * 180 / Math.PI, crossing = Math.min(ang, 180 - ang) > 25;
@@ -451,10 +557,13 @@
       }
     }
     if (passage > 250) warnings.push({ sev: 'warn', msg: `${ex.name} is ${Math.round(passage)} m away – very long transfer walk` });
+    if (surface && passage > 120) warnings.push({ sev: 'info', msg: `Transfer to ${ex.name} is an outdoor ${Math.round(passage)} m walk` });
     const discount = st.stagingArea >= 2000 ? 0.8 : 1;
-    const cost = (base * loc * busy * conflict + passage * 45e3 * loc) * discount;
+    const baseCost = base * loc * busy * conflict, passageCost = passage * (surface ? 6e3 : 45e3 * loc);
+    const cost = (baseCost + passageCost) * discount;
     const diff = loc * busy * conflict;
-    return { ex, cost, passage, loc, busy, conflict, discount, coverage: cov, surveyed: bf.surveyed, warnings,
+    return { ex, cost, baseCost, passageCost, passage, loc, crowd, landF, space, landValue: lv, open, busy, conflict, discount, coverage: cov,
+      surveyed: sa.surveyed, warnings, type: surface ? 'surface' : 'tunnel', ptsLL: ptsXY.map(q => G.toLL(q[0], q[1])),
       difficulty: diff < 1.6 ? 'Easy' : diff < 2.3 ? 'Moderate' : diff < 3.2 ? 'Hard' : 'Extreme' };
   }
 
@@ -513,5 +622,6 @@
     return res;
   }
 
-  TB.analysis = { analyzeProject, analyzeLine, buildPath, levelOf, stationDims };
+  TB.analysis = { analyzeProject, analyzeLine, buildPath, levelOf, stationDims, exitSurface, nearestOnRect, connectionCost, clampRot,
+    exitSurfaceLL: (lat, lon) => exitSurface(G.toXY(lat, lon), Object.values(TB.model.project.parcels)) };
 })();

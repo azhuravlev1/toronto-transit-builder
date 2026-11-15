@@ -5,14 +5,20 @@
   const G = TB.geo;
   const M = 1e6;
 
+  // Station box widths: island platform (one platform between the tracks) vs side platforms
+  // (tracks in the middle). A box at least `thr` wide is laid out with side platforms.
   const MODES = {
-    metro: { label: 'Metro (heavy rail)', platform: 150, width: { under: 22, surface: 14, above: 20 }, grade: 0.035, vmax: 90,
+    metro: { label: 'Metro (heavy rail)', platform: 150, grade: 0.035, vmax: 90,
+      layout: { under: { island: 20, side: 26, thr: 23 }, surface: { island: 14, side: 18, thr: 16 }, above: { island: 18, side: 22, thr: 20 } },
       minR: 250, hardR: 150, systemsKm: 16 * M, trainPerM: 0.17 * M, headway: 180, yard: 220 * M, row: 12, lineW: 1 },
-    lightmetro: { label: 'Light metro (automated)', platform: 100, width: { under: 18, surface: 12, above: 16 }, grade: 0.045, vmax: 80,
+    lightmetro: { label: 'Light metro (automated)', platform: 100, grade: 0.045, vmax: 80,
+      layout: { under: { island: 17, side: 22, thr: 20 }, surface: { island: 12, side: 16, thr: 14 }, above: { island: 15, side: 19, thr: 17 } },
       minR: 150, hardR: 100, systemsKm: 13 * M, trainPerM: 0.19 * M, headway: 120, yard: 160 * M, row: 10, lineW: 0.85 },
-    lrt: { label: 'Light rail (LRT)', platform: 90, width: { under: 16, surface: 6, above: 14 }, grade: 0.06, vmax: 70,
+    lrt: { label: 'Light rail (LRT)', platform: 90, grade: 0.06, vmax: 70,
+      layout: { under: { island: 15, side: 19, thr: 17 }, surface: { island: 12, side: 15, thr: 13.5 }, above: { island: 13, side: 17, thr: 15 } },
       minR: 50, hardR: 25, systemsKm: 9 * M, trainPerM: 0.22 * M, headway: 300, yard: 120 * M, row: 8, lineW: 0.7 },
   };
+  const ROT_MAX = 20; // degrees a station may be rotated off the natural track direction
 
   // family: under | cut | surface | above | bridge
   const SPANS = {
@@ -98,8 +104,8 @@
       case 'parking':
         if (f.public) {
           r.demolition = f.sub === 'garage' ? A * (f.levels || 3) * 220 : A * 120;
-          r.notes.push(f.greenp ? `Green P lot (${f.greenp}) – City land, negotiated at no cost; restore afterwards` : 'Publicly owned lot – negotiated at no cost; restore afterwards');
-          r.label = f.sub === 'garage' ? 'Public parking garage' : 'Public parking lot';
+          r.notes.push(`${f.owner || (f.greenp ? 'Green P (City of Toronto)' : 'Publicly owned')}${f.greenp && !f.owner ? ' · ' + f.greenp : ''} – negotiated at no cost; restore afterwards`);
+          r.label = f.sub === 'garage' ? 'Public parking garage' : f.owner && /GO/.test(f.owner) ? 'GO station parking' : 'Public parking lot';
         } else {
           r.land = A * lv * (f.sub === 'garage' ? 1.0 : 0.85) * 1.1;
           if (f.sub === 'garage') r.building = A * (f.levels || 3) * 1200;
@@ -127,8 +133,15 @@
     return '$' + Math.round(v);
   };
 
+  // exit passages ($/m) and the vertical part of an entrance, by station level
+  const EXIT = {
+    passage: { under: 38e3, above: 12e3, surface: 3e3 },
+    portal: (level, depth) => level === 'under' ? 3.5e6 + 0.3e6 * Math.max(0, depth) : level === 'above' ? 2.5e6 : 0.4e6,
+    junction: { under: 1.5e6, above: 0.3e6, surface: 0 },
+  };
+
   TB.costs = {
-    MODES, SPANS, STYLES, SITE, PORTAL, landValue, parcelCost, fmt,
+    MODES, SPANS, STYLES, SITE, PORTAL, EXIT, ROT_MAX, landValue, parcelCost, fmt,
     SOFT: 0.14, CONTINGENCY: 0.15, DWELL: 30,
     BENCHMARKS: [
       { name: 'Efficient builders (Italy, Istanbul, Spain)', perKm: 250e6 },

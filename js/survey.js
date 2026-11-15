@@ -166,7 +166,7 @@
     else sub = f.area < 220 && h < 11 ? 'house' : h >= 12 ? 'apartments' : 'commercial';
     for (const g of window.GREENP || []) {
       const p = G.toXY(g.lat, g.lon);
-      if (Math.abs(p[0] - c[0]) < 200 && Math.abs(p[1] - c[1]) < 200 && f.rings.some(r => G.pointInRing(p, r))) { sub = 'garage'; f.public = true; f.greenp = g.address; break; }
+      if (Math.abs(p[0] - c[0]) < 200 && Math.abs(p[1] - c[1]) < 200 && f.rings.some(r => G.pointInRing(p, r))) { sub = 'garage'; f.public = true; f.greenp = g.address; f.owner = 'Green P garage · ' + g.address; break; }
     }
     f.sub = sub;
   }
@@ -200,11 +200,19 @@
   function emitSoon() { clearTimeout(emitTimer); emitTimer = setTimeout(emit, 60); }
 
   // ---- parking tiles (script injection, works from file://) ---------------------------------
+  let goStations = null;
+  const nearGO = (lat, lon) => {
+    goStations = goStations || (window.TRANSIT || []).filter(l => l.kind === 'go').flatMap(l => l.stations.map(s => G.toXY(s.lat, s.lon)));
+    const p = G.toXY(lat, lon);
+    return goStations.some(q => Math.abs(q[0] - p[0]) < 300 && Math.abs(q[1] - p[1]) < 300 && G.dxy(p, q) < 300);
+  };
   window.TB.parkingTile = (key, list) => {
-    const [i, j] = key.split('_').map(Number);
     list.forEach(([pub, area, rings], n) => {
       const ringsLL = rings.map(flat => { const r = []; let x = 0, y = 0; for (let k = 0; k < flat.length; k += 2) { x += flat[k]; y += flat[k + 1]; r.push([y / 1e5, x / 1e5]); } return r; });
-      addArea(`pl${key}:${n}`, 'parking', { sub: 'surface', public: pub > 0, greenp: pub ? (pub === 2 ? 'TTC commuter lot' : 'Green P') : null }, ringsLL);
+      const r0 = ringsLL[0], c = [r0.reduce((a, p) => a + p[0], 0) / r0.length, r0.reduce((a, p) => a + p[1], 0) / r0.length];
+      let owner = pub === 2 ? 'TTC commuter lot' : pub === 1 ? 'Green P (City of Toronto)' : null;
+      if (!owner && area > 1500 && nearGO(c[0], c[1])) owner = 'GO station lot (Metrolinx)';
+      addArea(`pl${key}:${n}`, 'parking', { sub: 'surface', public: !!owner, owner }, ringsLL);
     });
     ptiles.set(key, 'done');
     (ptileWaiters.get(key) || []).forEach(f => f()); ptileWaiters.delete(key);

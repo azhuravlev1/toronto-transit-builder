@@ -23,8 +23,13 @@ team.
   changes level.
 - **Vertical profile** against real terrain (AWS Terrain Tiles). Grade limits, tunnel cover under
   valleys (the Don!), bridge heights.
-- **True-scale station boxes** (semi-transparent), with depth, platform length, width and design
-  ambition (utilitarian to iconic), plus multiple **exits** with passage lengths.
+- **True-scale station boxes** (semi-transparent), with depth, platform length, design ambition
+  (utilitarian to iconic) and **island vs side platforms**. The layout follows the box width and is
+  drawn inside the box. Stations can be **rotated** up to ±20° (slider or ⟳ handle), and the track
+  bends to fit.
+- **Exit tunnels**: click to add exits. One placed near an existing exit tunnel branches off it (for
+  example, both sides of a road from one passage). Exits may only go on acquired or public land.
+  Every portal, junction and metre of passage is costed.
 - **Land acquisition**: click parking lots, parks and buildings to buy them as dig sites. City-owned
   Green P and TTC lots are free; downtown towers are not. Digging from acquired land makes the
   station cheaper (open excavation instead of mining under buildings), and a staging site saves
@@ -36,8 +41,17 @@ team.
   space and level checks.
 - **Population density** toggle (2021 Census, 8,508 dissemination areas across the GTA), plus catchment
   stats: residents within 800 m, and residents *newly* served by rapid transit.
+- **Connections**: transfer passages to existing stations can be reshaped (drag the dots) or built
+  as outdoor walkways. Cost depends on how built-up versus open the surroundings are (Guildwood is
+  easy; Wellesley is extreme).
+- **Profile editor**: zoom and scroll, drag stations or bend points to change their depth (clamped by
+  the grade limit), click a span to change how it's built, and one-click **Fix** for tunnels that
+  break into valleys or grades that are too steep.
+- Click the total for a **drill-down cost breakdown** (line → tunnels / stations → land,
+  construction, exits, connections). Floating +/− amounts show the cost of every change.
+  Right-click anything for options.
 - Budget, cost per km against real benchmarks, run time, fleet size, autosave, undo/redo, JSON
-  export/import and share links.
+  export/import, **KML/KMZ export** for Google Earth, and share links.
 
 ## Cost model
 

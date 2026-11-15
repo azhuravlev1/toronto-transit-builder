@@ -13,7 +13,9 @@
 <body data-mode="select">
   <div id="map"></div>
 
+  <div id="mapframe"></div>
   <div id="toolbar"></div>
+  <div id="mode-banner"></div>
   <div id="density-readout"></div>
   <div id="legend"></div>
   <div id="profile"></div>
@@ -29,6 +31,8 @@
             <button data-act="newline">New line</button>
             <button data-act="share">Copy share link</button>
             <button data-act="export">Export network (.json)</button>
+            <button data-act="kmz">Export for Google Earth (.kmz)</button>
+            <button data-act="kml">Export as KML</button>
             <button data-act="import">Import network…</button>
             <button data-act="budget">Set budget…</button>
             <hr>
@@ -71,6 +75,7 @@
   <script src="js/editor.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/profile.js"></script>
+  <script src="js/export.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
